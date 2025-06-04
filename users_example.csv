@@ -1,0 +1,4 @@
+telegram_id,wireguard_id,expire_day
+@user1,8d5564c0-b985-495c-955d-e80532cac603,0 0 1 * *
+@user2,f2a3b4c5-d6e7-f8g9-h0i1-j2k3l4m5n6o7,0 0 15 * *
+@admin,a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6,0 0 5 * *

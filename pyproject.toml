@@ -1,0 +1,16 @@
+[project]
+name = "tg-wireguard-bot"
+version = "0.1.0"
+description = "Telegram bot for wireguard"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "croniter>=3.0.3",
+    "httpx>=0.28.1",
+    "pydantic>=2.11.5",
+    "python-dotenv>=1.1.0",
+    "python-telegram-bot[job-queue]>=22.1",
+    "requests>=2.32.3",
+    "pillow>=10.0.0",
+    "cairosvg>=2.7.0",
+]
