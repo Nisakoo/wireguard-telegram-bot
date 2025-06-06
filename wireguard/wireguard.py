@@ -100,4 +100,7 @@ class WireguardAPI:
 
 if __name__ == "__main__":
     with WireguardAPI() as api:
-        print(api.get_clients())
+        clients = api.get_clients()
+
+        for client in clients:
+            print(client.id, client.name)

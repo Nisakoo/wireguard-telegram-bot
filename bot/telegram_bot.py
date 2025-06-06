@@ -34,6 +34,7 @@ class TelegramBot:
         self.admin_id = os.environ.get("ADMIN_TELEGRAM_ID")
         self.users_config: Dict[str, Dict] = {}
         self.user_chat_ids: Dict[str, int] = {}  # Сохраняем chat_id пользователей
+        self.sent_reminders: Dict[str, str] = {}  # Отслеживаем отправленные напоминания (user_id -> date)
         self.messages = Messages()
 
         if not self.token:
@@ -268,35 +269,77 @@ class TelegramBot:
             expire_cron = user_data['expire_day']
 
             try:
+                # Проверяем, соответствует ли текущее время cron выражению
                 cron = croniter(expire_cron, current_time)
-                next_payment = cron.get_next(datetime)
 
-                # Проверяем, если следующий платеж сегодня
-                if next_payment.date() == current_time.date():
-                    # Отправляем напоминание пользователю
-                    user_message = self.messages["reminder_message"]
+                # Получаем предыдущее время срабатывания cron
+                prev_time = cron.get_prev(datetime)
 
-                    if telegram_id in self.user_chat_ids:
+                # Проверяем, что текущее время находится в пределах часа после времени срабатывания cron
+                time_diff = (current_time - prev_time).total_seconds()
+
+                # Если прошло меньше часа с момента срабатывания cron и мы еще не отправляли напоминание сегодня
+                if time_diff <= 3600:  # 3600 секунд = 1 час
+                    today_key = f"{telegram_id}_{current_time.strftime('%Y-%m-%d')}"
+
+                    # Проверяем, не отправляли ли мы уже напоминание сегодня для этого пользователя
+                    if today_key not in self.sent_reminders:
+                        # Отправляем напоминание пользователю
+                        user_message = self.messages["reminder_message"]
+
+                        if telegram_id in self.user_chat_ids:
+                            try:
+                                user_chat_id = self.user_chat_ids[telegram_id]
+                                await context.bot.send_message(chat_id=user_chat_id, text=user_message)
+                                logger.info(f"Payment reminder sent to user {telegram_id}")
+                            except Exception as e:
+                                logger.error(f"Failed to send payment reminder to user {telegram_id}: {e}")
+
+                        # Отправляем уведомление админу
+                        admin_message = self.messages["admin_remainder_message"].format(
+                            telegram_id=telegram_id
+                        )
+
                         try:
-                            user_chat_id = self.user_chat_ids[telegram_id]
-                            await context.bot.send_message(chat_id=user_chat_id, text=user_message)
-                            logger.info(f"Payment reminder sent to user {telegram_id}")
+                            await context.bot.send_message(chat_id=self.admin_id, text=admin_message)
+                            logger.info(f"Payment reminder notification sent to admin for user {telegram_id}")
                         except Exception as e:
-                            logger.error(f"Failed to send payment reminder to user {telegram_id}: {e}")
+                            logger.error(f"Failed to send payment reminder to admin: {e}")
 
-                    # Отправляем уведомление админу
-                    admin_message = self.messages["admin_remainder_message"].format(
-                        telegram_id=telegram_id
-                    )
-
-                    try:
-                        await context.bot.send_message(chat_id=self.admin_id, text=admin_message)
-                        logger.info(f"Payment reminder notification sent to admin for user {telegram_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send payment reminder to admin: {e}")
+                        # Отмечаем, что напоминание отправлено
+                        self.sent_reminders[today_key] = current_time.strftime('%Y-%m-%d %H:%M:%S')
+                        logger.info(f"Marked reminder as sent for {telegram_id} on {current_time.strftime('%Y-%m-%d')}")
 
             except Exception as e:
                 logger.error(f"Error processing payment reminder for {telegram_id}: {e}")
+
+        # Очищаем старые записи об отправленных напоминаниях (старше 7 дней)
+        self._cleanup_old_reminders()
+
+    def _cleanup_old_reminders(self):
+        """Очистка старых записей об отправленных напоминаниях"""
+        current_date = datetime.now()
+        keys_to_remove = []
+
+        for key in self.sent_reminders:
+            # Извлекаем дату из ключа (формат: user_id_YYYY-MM-DD)
+            try:
+                date_str = key.split('_')[-1]  # Последняя часть после последнего '_'
+                reminder_date = datetime.strptime(date_str, '%Y-%m-%d')
+
+                # Если запись старше 7 дней, помечаем для удаления
+                if (current_date - reminder_date).days > 7:
+                    keys_to_remove.append(key)
+            except (ValueError, IndexError):
+                # Если не удается распарсить дату, удаляем запись
+                keys_to_remove.append(key)
+
+        # Удаляем старые записи
+        for key in keys_to_remove:
+            del self.sent_reminders[key]
+
+        if keys_to_remove:
+            logger.info(f"Cleaned up {len(keys_to_remove)} old reminder records")
 
     def run(self):
         """Запуск бота"""
